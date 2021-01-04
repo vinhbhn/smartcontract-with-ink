@@ -7,12 +7,16 @@
 
 use std::sync::Arc;
 
-use node_template_runtime::{opaque::Block, AccountId, Balance, BlockNumber, Index};
+use node_template_runtime::{
+	opaque::Block, AccountId, Balance, BlockNumber, Index, TransactionConverter,
+};
 use pallet_contracts_rpc::{Contracts, ContractsApi};
+use sc_client_api::backend::{AuxStore, Backend, StateBackend, StorageProvider};
 pub use sc_rpc_api::DenyUnsafe;
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
+use sp_runtime::traits::BlakeTwo256;
 use sp_transaction_pool::TransactionPool;
 
 /// Full client dependencies.
@@ -23,20 +27,28 @@ pub struct FullDeps<C, P> {
 	pub pool: Arc<P>,
 	/// Whether to deny unsafe calls
 	pub deny_unsafe: DenyUnsafe,
+	/// The node authority flag
+	pub is_authority: bool,
 }
 
 /// Instantiate all full RPC extensions.
-pub fn create_full<C, P>(deps: FullDeps<C, P>) -> jsonrpc_core::IoHandler<sc_rpc::Metadata>
+pub fn create_full<C, P, BE>(deps: FullDeps<C, P>) -> jsonrpc_core::IoHandler<sc_rpc::Metadata>
 where
+	BE: Backend<Block> + 'static,
+	BE::State: StateBackend<BlakeTwo256>,
 	C: ProvideRuntimeApi<Block>,
+	C: StorageProvider<Block, BE>,
+	C: AuxStore,
 	C: HeaderBackend<Block> + HeaderMetadata<Block, Error = BlockChainError> + 'static,
 	C: Send + Sync + 'static,
 	C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Index>,
 	C::Api: pallet_contracts_rpc::ContractsRuntimeApi<Block, AccountId, Balance, BlockNumber>,
 	C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
 	C::Api: BlockBuilder<Block>,
-	P: TransactionPool + 'static,
+	C::Api: frontier_rpc_primitives::EthereumRuntimeRPCApi<Block>,
+	P: TransactionPool<Block = Block> + 'static,
 {
+	use frontier_rpc::{EthApi, EthApiServer};
 	use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApi};
 	use substrate_frame_rpc_system::{FullSystem, SystemApi};
 
@@ -45,11 +57,12 @@ where
 		client,
 		pool,
 		deny_unsafe,
+		is_authority,
 	} = deps;
 
 	io.extend_with(SystemApi::to_delegate(FullSystem::new(
 		client.clone(),
-		pool,
+		pool.clone(),
 		deny_unsafe,
 	)));
 
@@ -62,6 +75,14 @@ where
 	// to call into the runtime.
 	// `io.extend_with(YourRpcTrait::to_delegate(YourRpcStruct::new(ReferenceToClient, ...)));`
 
+	io.extend_with(EthApiServer::to_delegate(EthApi::new(
+		client.clone(),
+		pool.clone(),
+		TransactionConverter,
+		is_authority,
+	)));
+
 	io.extend_with(ContractsApi::to_delegate(Contracts::new(client.clone())));
+
 	io
 }
