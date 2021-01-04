@@ -123,9 +123,6 @@ mod vlc {
         ///
         /// Returns `InsufficientAllowance` error if there are not enough tokens allowed
         /// for the caller to withdraw from `from`.
-        ///
-        /// Returns `InsufficientBalance` error if there are not enough tokens on
-        /// the the account balance of `from`.
         #[ink(message)]
         pub fn transfer_from(
             &mut self,
@@ -228,6 +225,7 @@ mod vlc {
             } else {
                 panic!("encountered unexpected event kind: expected a Transfer event")
             }
+
             fn encoded_into_hash<T>(entity: &T) -> Hash
             where
                 T: scale::Encode,
@@ -247,7 +245,7 @@ mod vlc {
                 result
             }
             let expected_topics = vec![
-                encoded_into_hash(b"Erc20::Transfer"),
+                encoded_into_hash(b"VLC::Transfer"),
                 encoded_into_hash(&expected_from),
                 encoded_into_hash(&expected_to),
                 encoded_into_hash(&expected_value),
@@ -276,23 +274,19 @@ mod vlc {
             // Constructor works
             let vlc = VLC::new(100);
             // Transfer event triggered during initial construction
-            // let emitted_events = ink_env::test::recorded_events().collect::<Vec<_>>();
-            // assert_transfer_event(
-            //     &emitted_events[0],
-            //     None,
-            //     Some(AccountId::from([0x01; 32])),
-            //     100,
-            // );
-            assert_eq!(vlc.total_supply(), 100);
-            // let accounts = ink_env::test::default_accounts::<ink_env::DefaultEnvironment>()
-            //     .expect("Cannot get accounts");
-            // // Alice owns all the tokens on deployment
-            // assert_eq!(vlc.balance_of(accounts.alice), 100);
-            // // Bob does not owns tokens
-            // assert_eq!(vlc.balance_of(accounts.bob), 0);
-
-            assert_eq!(vlc.balance_of(AccountId::from([0x1; 32])), 100);
-            assert_eq!(vlc.balance_of(AccountId::from([0x0; 32])), 0);
+            let emitted_events = ink_env::test::recorded_events().collect::<Vec<_>>();
+            assert_transfer_event(
+                &emitted_events[0],
+                None,
+                Some(AccountId::from([0x01; 32])),
+                100,
+            );
+            let accounts = ink_env::test::default_accounts::<ink_env::DefaultEnvironment>()
+                .expect("Cannot get accounts");
+            // Alice owns all the tokens on deployment
+            assert_eq!(vlc.balance_of(accounts.alice), 100);
+            // Bob does not owns tokens
+            assert_eq!(vlc.balance_of(accounts.bob), 0);
         }
 
         #[ink::test]
@@ -311,7 +305,7 @@ mod vlc {
 
             let emitted_events = ink_env::test::recorded_events().collect::<Vec<_>>();
             assert_eq!(emitted_events.len(), 2);
-            // Check first transfer event related to ERC-20 instantiation.
+            // Check first transfer event related to token ERC-20 instantiation.
             assert_transfer_event(
                 &emitted_events[0],
                 None,
@@ -436,7 +430,7 @@ mod vlc {
 
             // Alice approves Bob for token transfers on her behalf.
             let alice_balance = vlc.balance_of(accounts.alice);
-            let initial_allowance = alice_balance + 2;
+            let initial_allowance = alice_balance;
             assert_eq!(vlc.approve(accounts.bob, initial_allowance), Ok(()));
 
             // Get contract address.
@@ -458,7 +452,7 @@ mod vlc {
             let emitted_events_before = ink_env::test::recorded_events().collect::<Vec<_>>();
             assert_eq!(
                 vlc.transfer_from(accounts.alice, accounts.eve, alice_balance + 1),
-                Err(Error::InsufficientBalance)
+                Err(Error::InsufficientAllowance)
             );
             // Allowance must have stayed the same
             assert_eq!(
